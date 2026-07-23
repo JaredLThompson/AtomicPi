@@ -106,6 +106,33 @@ echo "      -code \"<activation-code>\" -id \"<activation-id>\" -region us-west-
 echo "    sudo snap restart amazon-ssm-agent"
 echo ""
 
+# ─── 1c. Shell Environment (oh-my-zsh) ──────────────────────────────────────
+
+info "Setting up oh-my-zsh for $SUDO_USER..."
+
+if [[ -d "/home/$SUDO_USER/.oh-my-zsh" ]]; then
+    ok "oh-my-zsh already installed"
+else
+    sudo -u "$SUDO_USER" sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
+    ok "oh-my-zsh installed"
+fi
+
+# Update plugins
+sudo -u "$SUDO_USER" sed -i 's/plugins=(git)/plugins=(git aws)/g' "/home/$SUDO_USER/.zshrc"
+
+# Update theme
+sudo -u "$SUDO_USER" sed -i 's/robbyrussell/pygmalion/g' "/home/$SUDO_USER/.zshrc"
+
+# Add PATH and aliases
+grep -q 'export PATH=\$PATH:\$HOME/bin' "/home/$SUDO_USER/.zshrc" || \
+    echo 'export PATH=$PATH:$HOME/bin' >> "/home/$SUDO_USER/.zshrc"
+grep -q 'alias ip="ip -c"' "/home/$SUDO_USER/.zshrc" || \
+    echo 'alias ip="ip -c"' >> "/home/$SUDO_USER/.zshrc"
+
+# Set zsh as default shell
+chsh -s /usr/bin/zsh "$SUDO_USER" 2>/dev/null || true
+ok "Shell configured (zsh + pygmalion theme)"
+
 # ─── 2. GPIO Access ─────────────────────────────────────────────────────────
 
 info "Setting up GPIO access..."
