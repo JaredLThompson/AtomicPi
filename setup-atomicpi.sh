@@ -276,6 +276,14 @@ sudo -u "$SUDO_USER" "$AGENT_DIR/bin/pip" install -q \
 
 ok "Python venv created at $AGENT_DIR"
 
+# ─── 8b. RTC and NTP Time Sync ───────────────────────────────────────────────
+
+info "Setting up NTP time sync and RTC..."
+apt install -y -qq ntp > /dev/null 2>&1
+timedatectl set-ntp true
+timedatectl set-local-rtc true
+ok "NTP sync enabled, RTC set to local time"
+
 # ─── 9. Agent Systemd Service ───────────────────────────────────────────────
 
 info "Setting up agent systemd service..."
