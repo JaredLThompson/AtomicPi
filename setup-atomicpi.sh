@@ -194,8 +194,7 @@ info "Setting up BNO055 IMU on I2C bus 50..."
 cat > /etc/systemd/system/atomicpi-bno055.service << EOF
 [Unit]
 Description=Atomic Pi BNO055 IMU Setup
-After=multi-user.target
-Before=atomicpi-agent.service
+After=sysinit.target
 
 [Service]
 Type=oneshot
@@ -218,7 +217,7 @@ info "Setting up XMOS audio auto-reset..."
 cat > /etc/systemd/system/xmos-audio-reset.service << 'EOF'
 [Unit]
 Description=Reset XMOS Audio Processor
-After=multi-user.target
+After=sysinit.target
 
 [Service]
 Type=oneshot
@@ -294,10 +293,12 @@ info "Setting up agent systemd service..."
 cat > /etc/systemd/system/atomicpi-agent.service << EOF
 [Unit]
 Description=Atomic Pi AI Agent
-After=atomicpi-bno055.service xmos-audio-reset.service network.target
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple
+ExecStartPre=/bin/sleep 5
 ExecStart=${AGENT_DIR}/bin/python3 ${AGENT_SCRIPT} --mode server
 Restart=always
 RestartSec=5
