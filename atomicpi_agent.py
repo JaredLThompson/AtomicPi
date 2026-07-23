@@ -574,10 +574,10 @@ def load_dynamic_tools():
             sys.modules[module_name] = module
             spec.loader.exec_module(module)
 
-            # Find all @tool decorated functions in the module
+            # Find all @tool decorated functions (DecoratedFunctionTool instances)
             for attr_name in dir(module):
                 obj = getattr(module, attr_name)
-                if callable(obj) and hasattr(obj, 'name'):
+                if callable(obj) and type(obj).__name__ == 'DecoratedFunctionTool':
                     loaded_tools.append(obj)
         except Exception as e:
             print(f"  ⚠️  Failed to load {filename}: {e}")
