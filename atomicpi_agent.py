@@ -547,7 +547,8 @@ def get_time() -> str:
 
 # ─── Agent Setup ─────────────────────────────────────────────────────────────
 
-TOOLS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tools")
+TOOLS_DIR = os.environ.get("ATOMICPI_TOOLS_DIR", 
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "tools"))
 
 def load_dynamic_tools():
     """Auto-discover and load tools from the tools/ directory."""
@@ -888,10 +889,12 @@ def mode_server(host="0.0.0.0", port=5000):
         if not data or 'message' not in data:
             return jsonify({"error": "Missing 'message' field"}), 400
 
-        with agent_lock:
-            response = agent(data['message'])
-
-        return jsonify({"response": str(response)})
+        try:
+            with agent_lock:
+                response = agent(data['message'])
+            return jsonify({"response": str(response)})
+        except Exception as e:
+            return jsonify({"error": f"Agent error: {str(e)}"}), 500
 
     @app.route('/autonomous', methods=['POST'])
     def toggle_autonomous():

@@ -27,8 +27,8 @@ set -euo pipefail
 
 # ─── Configuration ───────────────────────────────────────────────────────────
 
-AGENT_DIR="/home/${SUDO_USER:-thjared}/atomicpi-agent"
-AGENT_SCRIPT="/home/${SUDO_USER:-thjared}/atomicpi_agent.py"
+AGENT_DIR="/opt/atomicpi/venv"
+AGENT_SCRIPT="/opt/atomicpi/atomicpi_agent.py"
 GEOCAM_DIR="/opt/geocam"
 I2C_GPIO_VER="0.1.2"
 BEDROCK_REGION="us-west-2"
@@ -266,15 +266,20 @@ ok "SOF audio blacklisted"
 
 info "Setting up Python virtual environment for AI agent..."
 
-sudo -u "$SUDO_USER" python3 -m venv "$AGENT_DIR"
-sudo -u "$SUDO_USER" "$AGENT_DIR/bin/pip" install -q \
+mkdir -p /opt/atomicpi/tools
+python3 -m venv "$AGENT_DIR"
+"$AGENT_DIR/bin/pip" install -q \
     strands-agents \
     strands-agents-tools \
     smbus2 \
     opencv-python-headless \
     flask
 
+# Set ownership so the user can manage tools
+chown -R "$SUDO_USER:$SUDO_USER" /opt/atomicpi/tools
+
 ok "Python venv created at $AGENT_DIR"
+echo -e "${YELLOW}  Copy atomicpi_agent.py and static/ to /opt/atomicpi/${NC}"
 
 # ─── 8b. RTC and NTP Time Sync ───────────────────────────────────────────────
 
