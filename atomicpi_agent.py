@@ -699,11 +699,17 @@ def delete_tool(name: str) -> str:
 
 @tool
 def restart_agent() -> str:
-    """Restart the agent process to reload configuration and dynamic tools."""
-    import sys
-    print("\n🔄 Restarting agent...\n")
-    # Exit cleanly — systemd will restart us, avoiding port conflicts
-    os._exit(0)
+    """Restart the agent process to reload configuration and dynamic tools.
+    The agent will shut down after responding, and systemd will restart it."""
+    import threading
+
+    def _delayed_exit():
+        import time
+        time.sleep(2)  # Give time for the response to be sent
+        os._exit(0)
+
+    threading.Thread(target=_delayed_exit, daemon=True).start()
+    return "Restarting in 2 seconds... New tools will be available shortly."
 
 
 SYSTEM_PROMPT = """You are an AI agent running on an Atomic Pi single-board computer (Intel Atom x5-Z8350).
