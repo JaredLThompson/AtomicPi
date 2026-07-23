@@ -860,17 +860,22 @@ Keep responses short. Only speak aloud if something urgent is happening."""
 # ─── Mode: API Server ────────────────────────────────────────────────────────
 
 def mode_server(host="0.0.0.0", port=5000):
-    """Run the agent as an HTTP API server."""
-    from flask import Flask, request, jsonify
+    """Run the agent as an HTTP API server with web UI."""
+    from flask import Flask, request, jsonify, send_from_directory
     import threading
 
-    app = Flask(__name__)
+    static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
+    app = Flask(__name__, static_folder=static_dir)
     agent = create_agent()
     agent_lock = threading.Lock()
 
     # Autonomous background loop (optional)
     autonomous_enabled = False
     autonomous_interval = 60  # seconds
+
+    @app.route('/', methods=['GET'])
+    def index():
+        return send_from_directory(static_dir, 'index.html')
 
     @app.route('/health', methods=['GET'])
     def health():
