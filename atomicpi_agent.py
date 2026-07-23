@@ -18,6 +18,7 @@ Usage:
   python3 atomicpi_agent.py
 """
 
+import json
 import os
 import subprocess
 import time
@@ -545,6 +546,106 @@ def get_time() -> str:
     result = subprocess.run(["date", "+%Y-%m-%d %H:%M:%S %Z (%A)"], capture_output=True, text=True)
     return result.stdout.strip()
 
+# ─── Persistent Memory ────────────────────────────────────────────────────────
+
+MEMORY_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "memory.json")
+
+def load_memory():
+    """Load persistent memory from disk."""
+    if os.path.exists(MEMORY_FILE):
+        try:
+            with open(MEMORY_FILE) as f:
+                return json.load(f)
+        except:
+            return {"facts": [], "notes": []}
+    return {"facts": [], "notes": []}
+
+def save_memory(memory):
+    """Save persistent memory to disk."""
+    with open(MEMORY_FILE, 'w') as f:
+        json.dump(memory, f, indent=2)
+
+def get_memory_context():
+    """Return memory as a string for the system prompt."""
+    memory = load_memory()
+    if not memory["facts"] and not memory["notes"]:
+        return ""
+    
+    context = "\n\n--- PERSISTENT MEMORY ---\n"
+    if memory["facts"]:
+        context += "Facts I know:\n"
+        for fact in memory["facts"]:
+            context += f"  - {fact}\n"
+    if memory["notes"]:
+        context += "Notes:\n"
+        for note in memory["notes"]:
+            context += f"  - {note}\n"
+    context += "--- END MEMORY ---\n"
+    return context
+
+
+@tool
+def remember(item: str, category: str = "facts") -> str:
+    """Store something in persistent memory. Survives restarts.
+
+    Args:
+        item: The fact or note to remember.
+        category: 'facts' for important facts, 'notes' for temporary notes.
+    """
+    memory = load_memory()
+    if category not in memory:
+        memory[category] = []
+    memory[category].append(item)
+    save_memory(memory)
+    return f"Remembered ({category}): {item}"
+
+
+@tool
+def recall() -> str:
+    """Recall everything in persistent memory."""
+    memory = load_memory()
+    if not memory["facts"] and not memory["notes"]:
+        return "Memory is empty."
+    
+    result = "Persistent Memory:\n"
+    if memory["facts"]:
+        result += "\nFacts:\n"
+        for i, fact in enumerate(memory["facts"], 1):
+            result += f"  {i}. {fact}\n"
+    if memory["notes"]:
+        result += "\nNotes:\n"
+        for i, note in enumerate(memory["notes"], 1):
+            result += f"  {i}. {note}\n"
+    return result
+
+
+@tool
+def forget(index: int, category: str = "facts") -> str:
+    """Remove a specific item from persistent memory by index.
+
+    Args:
+        index: The 1-based index of the item to forget.
+        category: 'facts' or 'notes'.
+    """
+    memory = load_memory()
+    if category not in memory or not memory[category]:
+        return f"No items in '{category}' to forget."
+    
+    if index < 1 or index > len(memory[category]):
+        return f"Invalid index {index}. Range: 1-{len(memory[category])}"
+    
+    removed = memory[category].pop(index - 1)
+    save_memory(memory)
+    return f"Forgot ({category} #{index}): {removed}"
+
+
+@tool
+def clear_memory() -> str:
+    """Erase all persistent memory. This cannot be undone."""
+    save_memory({"facts": [], "notes": []})
+    return "All persistent memory cleared."
+
+
 # ─── Agent Setup ─────────────────────────────────────────────────────────────
 
 TOOLS_DIR = os.environ.get("ATOMICPI_TOOLS_DIR", 
@@ -754,7 +855,7 @@ def create_agent():
     if dynamic_tools:
         print(f"  Loaded {len(dynamic_tools)} dynamic tool(s) from tools/")
 
-    # Core tools + self-modification tools + dynamic tools
+    # Core tools + self-modification tools + memory tools + dynamic tools
     all_tools = [
         # Hardware
         set_led, blink_led, led_pattern,
@@ -764,15 +865,20 @@ def create_agent():
         play_sound, speak,
         set_header_pin, read_header_pin,
         get_system_info, get_time,
+        # Memory
+        remember, recall, forget, clear_memory,
         # Self-modification
         create_tool, edit_tool, list_tools, read_tool_source, delete_tool,
         restart_agent,
     ] + dynamic_tools
 
+    # Append memory context to system prompt
+    memory_context = get_memory_context()
+
     agent = Agent(
         model=model,
         tools=all_tools,
-        system_prompt=SYSTEM_PROMPT,
+        system_prompt=SYSTEM_PROMPT + memory_context,
     )
 
     return agent
@@ -916,6 +1022,15 @@ def mode_server(host="0.0.0.0", port=5000):
             tool_files = [f[:-3] for f in os.listdir(TOOLS_DIR)
                          if f.endswith('.py') and not f.startswith('_')]
         return jsonify({"dynamic_tools": tool_files})
+
+    @app.route('/memory', methods=['GET'])
+    def get_memory():
+        return jsonify(load_memory())
+
+    @app.route('/memory', methods=['DELETE'])
+    def wipe_memory():
+        save_memory({"facts": [], "notes": []})
+        return jsonify({"status": "Memory cleared"})
 
     def autonomous_loop():
         """Background thread for autonomous behavior."""
