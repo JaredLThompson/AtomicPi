@@ -225,12 +225,17 @@
             showTyping();
 
             try {
+                const controller = new AbortController();
+                const timeout = setTimeout(() => controller.abort(), 120000); // 2 min timeout
+
                 const res = await fetch('/ask', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ message })
+                    body: JSON.stringify({ message }),
+                    signal: controller.signal
                 });
 
+                clearTimeout(timeout);
                 hideTyping();
                 const data = await res.json();
 
@@ -241,7 +246,11 @@
                 }
             } catch (err) {
                 hideTyping();
-                addMessage(`Connection error: ${err.message}`, 'error');
+                if (err.name === 'AbortError') {
+                    addMessage('Request timed out (2 min). The agent may still be processing.', 'error');
+                } else {
+                    addMessage(`Connection error: ${err.message}`, 'error');
+                }
             }
 
             sendBtn.disabled = false;
