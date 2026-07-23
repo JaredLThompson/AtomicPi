@@ -844,6 +844,11 @@ Hardware facts:
 - Board temperature runs 35-45°C normally
 - XMOS audio is card 1 or 2 depending on boot order
 - Camera requires geocam firmware (auto-loaded via udev)
+
+CRITICAL RULES:
+- NEVER use fswebcam or ffmpeg for camera capture. They change the pixel format to greyscale and break all future captures. Only use OpenCV (cv2.VideoCapture).
+- NEVER change v4l2 camera settings (brightness, contrast, sharpness, pixel format). The defaults produce the best images.
+- When creating tools, do not modify hardware settings that persist after the tool exits.
 """
 
 def create_agent():
