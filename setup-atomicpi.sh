@@ -279,12 +279,12 @@ ok "Python venv created at $AGENT_DIR"
 # ─── 8b. RTC and NTP Time Sync ───────────────────────────────────────────────
 
 info "Setting up NTP time sync and RTC..."
-apt install -y -qq ntp > /dev/null 2>&1
-systemctl enable ntp
-systemctl start ntp
+apt install -y -qq systemd-timesyncd > /dev/null 2>&1
+systemctl enable systemd-timesyncd
+systemctl start systemd-timesyncd
 # Sync hardware clock to system time
 hwclock --systohc 2>/dev/null || true
-ok "NTP service enabled, RTC synced"
+ok "Time sync enabled, RTC synced"
 
 # ─── 9. Agent Systemd Service ───────────────────────────────────────────────
 
