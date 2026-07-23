@@ -163,6 +163,8 @@
         <button onclick="send('Tell me system info')">💻 System</button>
         <button onclick="send('Say hello out loud')">🔊 Speak</button>
         <button onclick="send('Take a photo and describe it in detail')">👁️ Describe</button>
+        <button onclick="send('What do you remember?')">🧠 Memory</button>
+        <button onclick="clearMemory()">🗑️ Clear Memory</button>
     </div>
 
     <div class="chat-container" id="chat"></div>
@@ -291,6 +293,12 @@
 
         // Welcome message
         addMessage('Agent online. What would you like me to do?', 'system');
+
+        async function clearMemory() {
+            if (!confirm('Clear all agent memory? This cannot be undone.')) return;
+            await fetch('/memory', { method: 'DELETE' });
+            addMessage('Memory cleared.', 'system');
+        }
     </script>
 </body>
 </html>
