@@ -81,6 +81,7 @@ apt install -y -qq \
     espeak-ng \
     opus-tools \
     pulseaudio \
+    util-linux-extra \
     git \
     python3-pip \
     python3-venv \
