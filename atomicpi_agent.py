@@ -701,7 +701,8 @@ def restart_agent() -> str:
     """Restart the agent process to reload configuration and dynamic tools."""
     import sys
     print("\n🔄 Restarting agent...\n")
-    os.execv(sys.executable, [sys.executable] + sys.argv)
+    # Exit cleanly — systemd will restart us, avoiding port conflicts
+    os._exit(0)
 
 
 SYSTEM_PROMPT = """You are an AI agent running on an Atomic Pi single-board computer (Intel Atom x5-Z8350).

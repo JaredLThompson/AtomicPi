@@ -178,6 +178,10 @@
         const sendBtn = document.getElementById('sendBtn');
         const status = document.getElementById('status');
 
+        // Command history
+        let history = JSON.parse(localStorage.getItem('atomicpi_history') || '[]');
+        let historyIndex = -1;
+
         // Check health on load
         fetch('/health')
             .then(r => r.json())
@@ -245,11 +249,35 @@
         }
 
         function sendInput() {
+            const msg = input.value.trim();
+            if (msg) {
+                history.unshift(msg);
+                if (history.length > 50) history.pop();
+                localStorage.setItem('atomicpi_history', JSON.stringify(history));
+                historyIndex = -1;
+            }
             send(input.value);
         }
 
         input.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') sendInput();
+            if (e.key === 'Enter') {
+                sendInput();
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                if (historyIndex < history.length - 1) {
+                    historyIndex++;
+                    input.value = history[historyIndex];
+                }
+            } else if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                if (historyIndex > 0) {
+                    historyIndex--;
+                    input.value = history[historyIndex];
+                } else {
+                    historyIndex = -1;
+                    input.value = '';
+                }
+            }
         });
 
         // Welcome message
