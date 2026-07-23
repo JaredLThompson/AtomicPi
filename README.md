@@ -1,0 +1,395 @@
+# Atomic Pi GPIO Reference (Kernel 6.x)
+
+## Overview
+
+The Atomic Pi uses an Intel Cherry Trail Z8350 SoC with four GPIO controllers exposed via the `INT33FF` pinctrl driver. On kernel 6.x, these are enumerated as:
+
+| gpiochip | Controller | Community | Lines |
+|----------|-----------|-----------|-------|
+| gpiochip0 | INT33FF:00 | Southwest | 98 |
+| gpiochip1 | INT33FF:01 | North | 73 |
+| gpiochip2 | INT33FF:02 | East | 27 |
+| gpiochip3 | INT33FF:03 | Southeast | 86 |
+
+> **Note:** The original AAEON documentation (2019) refers to gpiochip3 for the East community. On kernel 6.x the chip numbering has shifted — the East community is now **gpiochip2**. The legacy sysfs GPIO numbers remain the same.
+
+## On-Board LEDs
+
+Both user LEDs are **active-low** (drive to 0 to turn ON, 1 to turn OFF).
+
+| Label | Color | gpiochip | Line | Schematic Name | Legacy sysfs GPIO |
+|-------|-------|----------|------|----------------|-------------------|
+| GPIO1 | Green | gpiochip2 | 18 | MF_ISH_GPIO_1 | 332 |
+| GPIO2 | Yellow | gpiochip2 | 24 | MF_ISH_GPIO_2 | 338 |
+
+### Quick Commands
+
+```bash
+# Green LED on/off
+sudo gpioset gpiochip2 18=0    # ON
+sudo gpioset gpiochip2 18=1    # OFF
+
+# Yellow LED on/off
+sudo gpioset gpiochip2 24=0    # ON
+sudo gpioset gpiochip2 24=1    # OFF
+
+# Both on
+sudo gpioset gpiochip2 18=0 24=0
+
+# Blink test script
+sudo ./gpio-led-test.sh
+```
+
+## 26-Pin Header GPIO Pins
+
+These are the user-accessible GPIO pins on the 26-pin connector (active-high, accent3.3V logic):
+
+| Schematic Name | gpiochip | Line | Legacy sysfs | 26-Pin Header | Enchilada Board |
+|----------------|----------|------|--------------|---------------|-----------------|
+| ISH_GPIO_0 | gpiochip2 | 21 | 335 | Pin 24 | Pin 9 |
+| ISH_GPIO_1 | gpiochip2 | 18 | 332 | Pin 25 | Pin 10 |
+| ISH_GPIO_2 | gpiochip2 | 24 | 338 | Pin 26 | Pin 11 |
+| ISH_GPIO_3 | gpiochip2 | 15 | 329 | Pin 18 | Pin 3 |
+| ISH_GPIO_4 | gpiochip2 | 22 | 336 | Pin 19 | Pin 4 |
+| ISH_GPIO_7 | gpiochip2 | 16 | 330 | Pin 20 | Pin 5 |
+
+## Other Peripherals
+
+### North Community (gpiochip1, base = 341)
+
+| Schematic Name | Line | Legacy sysfs | Function |
+|----------------|------|--------------|----------|
+| AU_MIC_SEL | 0 | 341 | XMOS audio mic loopback selector |
+| GPIO_DFX_5 | 4 | 345 | WiFi enable ⚠️ **DO NOT TOGGLE** |
+| GPIO_DFX_4 | 5 | 346 | Volume Down (3-pin header) |
+| GPIO_DFX_2 | 7 | 348 | Volume Up (3-pin header) |
+| XMOS_RESET | 8 | 349 | XMOS audio reset (active-low) |
+| GPIO_SUS3 | 17 | 358 | BNO055 interrupt (active-low) |
+| GPIO_SUS6 | 25 | 366 | BNO055 reset (active-low) |
+
+### Southwest Community (gpiochip0, base = 414)
+
+| Schematic Name | Line | Legacy sysfs | Function |
+|----------------|------|--------------|----------|
+| I2C2_3P3_SDA | 62 | 476 | BNO055 I2C SDA |
+| I2C2_3P3_SCL | 66 | 480 | BNO055 I2C SCL |
+
+## Dangerous Lines
+
+**Do NOT toggle these — they will lock up the system:**
+
+| gpiochip | Line | Reason |
+|----------|------|--------|
+| gpiochip1 | 4 | WiFi enable / critical SoC function |
+
+## Setup for Non-Root GPIO Access
+
+```bash
+# Create gpio group and add user
+sudo groupadd gpio
+sudo usermod -aG gpio $USER
+
+# Create udev rule
+sudo tee /etc/udev/rules.d/99-gpio.rules << 'EOF'
+SUBSYSTEM=="gpio", KERNEL=="gpiochip*", GROUP="gpio", MODE="0660"
+SUBSYSTEM=="gpio", KERNEL=="gpio*", GROUP="gpio", MODE="0660"
+EOF
+
+# Reload rules
+sudo udevadm control --reload-rules
+sudo udevadm trigger
+
+# Log out and back in for group membership to take effect
+```
+
+## Audio (XMOS Mayfield Audio)
+
+The Atomic Pi does **not** use the Cherry Trail SoC's built-in audio codec. Instead, it has an **XMOS USB audio processor** ("Mayfield Audio") connected internally via USB, driving a TI Class-D stereo amplifier.
+
+The SOF driver error in dmesg (`no matching ASoC machine driver found`) is expected and harmless — the SoC audio DSP is unused.
+
+### Audio Devices
+
+| Card | Device | Type | Notes |
+|------|--------|------|-------|
+| 0 | Intel HDMI/DP LPE Audio | HDMI | Works out of the box |
+| 1 | XMOS Mayfield Audio | USB Audio | Requires GPIO reset at boot |
+
+### Enabling XMOS Audio
+
+The XMOS chip must be reset via GPIO after every boot before it appears as a USB audio device:
+
+```bash
+# Reset XMOS (gpiochip1 line 8, active-low reset)
+sudo gpioset gpiochip1 8=0 & PID=$!; sleep 0.1; kill $PID; wait $PID 2>/dev/null
+sudo gpioset gpiochip1 8=1 & PID=$!; sleep 0.5; kill $PID; wait $PID 2>/dev/null
+
+# Verify it appeared
+aplay -l
+# Should show: card 1: Audio_1 [Mayfield Audio], device 0: USB Audio [USB Audio]
+```
+
+### Microphone Selector
+
+The XMOS has a mic input mux controlled by GPIO:
+
+```bash
+# Select external microphone (gpiochip1 line 0 = LOW)
+sudo gpioset gpiochip1 0=0 & PID=$!; sleep 0.1; kill $PID; wait $PID 2>/dev/null
+
+# Select internal/loopback (gpiochip1 line 0 = HIGH)
+sudo gpioset gpiochip1 0=1 & PID=$!; sleep 0.1; kill $PID; wait $PID 2>/dev/null
+```
+
+### Testing Playback
+
+```bash
+# Test XMOS output (speakers/amp)
+speaker-test -c 2 -D plughw:1,0
+
+# Test HDMI output
+speaker-test -c 2 -D plughw:0,0
+
+# Play a WAV file via XMOS
+aplay -D plughw:1,0 /usr/share/sounds/alsa/Front_Center.wav
+```
+
+### Permissions
+
+Your user must be in the `audio` group:
+
+```bash
+sudo usermod -aG audio $USER
+# Log out and back in
+```
+
+### Auto-Reset at Boot (systemd service)
+
+Create `/etc/systemd/system/xmos-audio-reset.service`:
+
+```ini
+[Unit]
+Description=Reset XMOS Audio Processor
+After=multi-user.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash -c 'gpioset gpiochip1 8=0 & PID=$$!; sleep 0.1; kill $$PID; wait $$PID 2>/dev/null; gpioset gpiochip1 8=1 & PID=$$!; sleep 0.5; kill $$PID; wait $$PID 2>/dev/null'
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Enable it:
+
+```bash
+sudo systemctl enable xmos-audio-reset.service
+sudo systemctl start xmos-audio-reset.service
+```
+
+### Silencing the SOF Error (Optional)
+
+To suppress the harmless SOF probe error in dmesg:
+
+```bash
+echo "blacklist snd_sof_acpi_intel_byt" | sudo tee /etc/modprobe.d/blacklist-sof-byt.conf
+sudo update-initramfs -u
+```
+
+## BNO055 Absolute Orientation Sensor
+
+The Atomic Pi has a built-in **Bosch BNO055** 9-axis absolute orientation sensor (accelerometer + gyroscope + magnetometer) connected via a GPIO-based I2C bus (bus 50, address 0x28).
+
+The `i2c-gpio-custom` kernel module creates bus 50 using GPIO lines 574 (SDA) and 578 (SCL) — these map to gpiochip0 lines 62/66 in the Southwest community.
+
+### Verifying the Sensor
+
+```bash
+# Check if the I2C bus and device are present
+sudo i2cdetect -y 50
+# Should show device at address 0x28
+
+# Check dmesg for confirmation
+dmesg | grep bno055
+# Should show: i2c i2c-50: new_device: Instantiated device bno055 at 0x28
+```
+
+### GPIO Lines for BNO055
+
+| Function | gpiochip | Line | Legacy sysfs | Notes |
+|----------|----------|------|--------------|-------|
+| I2C SDA | gpiochip0 | 62 | 476 | Bus 50 data |
+| I2C SCL | gpiochip0 | 66 | 480 | Bus 50 clock |
+| Interrupt | gpiochip1 | 17 | 358 | Active-low, optional |
+| Reset | gpiochip1 | 25 | 366 | Active-low, optional |
+
+### Python (Adafruit Library)
+
+```bash
+pip3 install adafruit-bno055 smbus2
+```
+
+```python
+from Adafruit_BNO055.BNO055 import BNO055
+from time import sleep
+
+# BNO055 is on I2C bus 50
+sensor = BNO055(busnum=50)
+assert sensor.begin(), "Failed to initialize BNO055"
+
+while True:
+    heading, roll, pitch = sensor.read_euler()
+    qw, qx, qy, qz = sensor.read_quaternion()
+    ax, ay, az = sensor.read_linear_acceleration()
+    gx, gy, gz = sensor.read_gravity()
+    temp = sensor.read_temp()
+
+    print(f"Heading={heading:.1f} Roll={roll:.1f} Pitch={pitch:.1f}")
+    print(f"Quaternion=({qw:.3f}, {qx:.3f}, {qy:.3f}, {qz:.3f})")
+    print(f"Linear Accel=({ax:.2f}, {ay:.2f}, {az:.2f}) m/s²")
+    print(f"Gravity=({gx:.2f}, {gy:.2f}, {gz:.2f}) m/s²")
+    print(f"Temp={temp:.1f}°C")
+    print()
+    sleep(1)
+```
+
+### Node.JS
+
+```bash
+npm install bno055 async
+```
+
+```javascript
+var BNO055 = require('bno055');
+var async = require('async');
+
+// BNO055 is on I2C bus 50
+var imu = new BNO055({device: "/dev/i2c-50"});
+imu.beginNDOF(function() {
+    console.info('IMU running');
+    setInterval(function() {
+        async.series({
+            calibrationStatus: imu.getCalibrationStatus.bind(imu),
+            quaternion: imu.getQuaternion.bind(imu),
+            euler: imu.getEuler.bind(imu),
+            linearAcceleration: imu.getLinearAcceleration.bind(imu)
+        }, function(err, results) {
+            console.info('IMU:', JSON.stringify(results));
+        });
+    }, 1000);
+});
+```
+
+### Calibration
+
+The BNO055 requires calibration for accurate readings. Calibration status (0-3 for each of system, gyro, accelerometer, magnetometer) can be read from the sensor. For best results:
+
+1. **Gyroscope**: Keep the sensor still for a few seconds
+2. **Magnetometer**: Move the sensor in a figure-8 pattern
+3. **Accelerometer**: Place the sensor in 6 different stable positions
+4. **System**: Achieves full calibration when all three are calibrated
+
+### Resetting the BNO055 (if needed)
+
+```bash
+# Hardware reset via GPIO (active-low)
+sudo gpioset gpiochip1 25=0 & PID=$!; sleep 0.1; kill $PID; wait $PID 2>/dev/null
+sudo gpioset gpiochip1 25=1 & PID=$!; sleep 0.5; kill $PID; wait $PID 2>/dev/null
+```
+
+### Monitoring Interrupts
+
+The BNO055 can generate interrupts on gpiochip1 line 17 (active-low):
+
+```bash
+# Watch for interrupt events
+sudo gpiomon --falling-edge gpiochip1 17
+```
+
+## Tools
+
+- `gpiodetect` — list GPIO controllers
+- `gpioinfo` — show all lines and their current state
+- `gpioset` — set output value (holds line until process exits)
+- `gpioget` — read input value
+- `gpiomon` — monitor line for events/interrupts
+
+Install with: `sudo apt install gpiod`
+
+## AI Agent (Strands + Bedrock)
+
+The Atomic Pi runs a Strands Agents SDK-based AI controller powered by Amazon Bedrock (Claude). The agent can control all hardware via natural language.
+
+### Setup
+
+```bash
+# Create virtual environment
+python3 -m venv ~/atomicpi-agent
+source ~/atomicpi-agent/bin/activate
+
+# Install Strands
+pip install strands-agents strands-agents-tools
+
+# Run the agent (uses SSM hybrid credentials)
+sudo /home/thjared/atomicpi-agent/bin/python3 ~/atomicpi_agent.py
+```
+
+### Available Tools
+
+| Tool | Description |
+|------|-------------|
+| `set_led` | Turn green/yellow LED on or off |
+| `blink_led` | Blink an LED N times |
+| `led_pattern` | Run patterns (alternate, chase, both_on, both_off) |
+| `read_orientation` | Get heading, pitch, roll from BNO055 |
+| `read_imu_full` | Full IMU data (quaternion, accel, gravity, gyro, mag, temp) |
+| `detect_motion` | Check if the board is moving |
+| `remap_imu_axes` | Remap BNO055 axis orientation for different mounting positions |
+| `set_header_pin` | Set a GPIO header pin high/low |
+| `read_header_pin` | Read a GPIO header pin value |
+| `get_system_info` | Uptime, memory, board temperature |
+| `get_time` | Current date and time |
+
+### Credentials (SSM Hybrid Activation)
+
+The Atomic Pi is registered as an SSM managed instance (`mi-022cfd32173a54bbc`). The SSM agent auto-rotates credentials at `/root/.aws/credentials`, used by the Bedrock SDK — no manual key management needed.
+
+The IAM role `AmazonEC2RunCommandRoleForManagedInstances` has an inline policy `BedrockInvokeModel` granting `bedrock:InvokeModel` and `bedrock:InvokeModelWithResponseStream` access.
+
+### Adding a USB Camera
+
+With a USB webcam attached, you could add a vision tool that captures a frame and sends it to Claude's multimodal API. This would enable:
+
+- **Visual inspection** — "What do you see?" / "Is there anyone in the room?"
+- **Object detection** — "Count the items on the table"
+- **Navigation assistance** — "Describe what's in front of me"
+- **Security monitoring** — "Alert me if something changes"
+- **QR/barcode reading** — "Scan that code"
+- **Combined sensor+vision** — "Take a photo and tell me which direction it's facing"
+
+Example tool (requires `opencv-python`):
+
+```python
+import cv2
+import base64
+
+@tool
+def take_photo(description: str = "camera capture") -> dict:
+    """Capture a photo from the USB camera and analyze it."""
+    cap = cv2.VideoCapture(0)
+    ret, frame = cap.read()
+    cap.release()
+    if not ret:
+        return {"error": "Failed to capture image"}
+    _, buffer = cv2.imencode('.jpg', frame)
+    b64_image = base64.b64encode(buffer).decode('utf-8')
+    return {"image": b64_image, "format": "jpeg"}
+```
+
+## Notes
+
+- `gpioset` holds the GPIO line for as long as the process runs. When killed/exited, the line is released and reverts to its default state.
+- The legacy sysfs interface (`/sys/class/gpio/`) is deprecated on kernel 6.x. Use `libgpiod` tools or the chardev API instead.
+- The gpiochip numbering differs from the 2019 AAEON documentation due to kernel version changes. Always verify with `gpiodetect` and `gpioinfo` on your running system.
+- Board tested: Atomic Pi (AAEON UP-APL01), kernel 6.x, July 2026.
