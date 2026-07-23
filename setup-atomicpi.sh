@@ -244,7 +244,8 @@ sudo -u "$SUDO_USER" "$AGENT_DIR/bin/pip" install -q \
     strands-agents \
     strands-agents-tools \
     smbus2 \
-    opencv-python-headless
+    opencv-python-headless \
+    flask
 
 ok "Python venv created at $AGENT_DIR"
 

@@ -734,7 +734,8 @@ Hardware facts:
 - Camera requires geocam firmware (auto-loaded via udev)
 """
 
-def main():
+def create_agent():
+    """Create and return the configured agent with all tools."""
     model = BedrockModel(
         model_id="us.anthropic.claude-sonnet-4-6",
         region_name="us-west-2",  # Change to your Bedrock region
@@ -766,6 +767,15 @@ def main():
         system_prompt=SYSTEM_PROMPT,
     )
 
+    return agent
+
+
+# ─── Mode: Interactive (CLI chat) ────────────────────────────────────────────
+
+def mode_interactive():
+    """Run the agent in interactive chat mode."""
+    agent = create_agent()
+
     print("╔══════════════════════════════════════════╗")
     print("║   Atomic Pi Robot Agent                  ║")
     print("║   Powered by Strands + Bedrock Claude    ║")
@@ -785,14 +795,176 @@ def main():
             print(f"\nAgent > {response}\n")
 
     except KeyboardInterrupt:
-        # Clean up LED processes
         print("\nShutting down...")
-        if hasattr(set_led, '_procs'):
-            for proc in set_led._procs.values():
-                proc.terminate()
-        if hasattr(led_pattern, '_proc') and led_pattern._proc:
-            led_pattern._proc.terminate()
-        print("Done.")
+        _cleanup()
+
+
+# ─── Mode: Autonomous ────────────────────────────────────────────────────────
+
+def mode_autonomous():
+    """Run the agent in autonomous mode — perceives and acts on its own."""
+    import json
+
+    agent = create_agent()
+    COMMAND_FILE = "/tmp/atomicpi_command.json"
+
+    print("╔══════════════════════════════════════════╗")
+    print("║   Atomic Pi Robot Agent (Autonomous)     ║")
+    print("║   Powered by Strands + Bedrock Claude    ║")
+    print("╚══════════════════════════════════════════╝")
+    print()
+    print(f"  Command file: {COMMAND_FILE}")
+    print(f"  Drop a JSON file there to send commands.")
+    print()
+
+    AUTONOMOUS_PROMPT = """You are in autonomous mode. Perform a status check:
+1. Blink the green LED once to show you're alive
+2. Check for motion — if motion detected, take a photo and describe what you see
+3. If temperature is above 50°C, blink yellow LED as a warning
+4. Report any anomalies briefly
+
+Keep responses short. Only speak aloud if something urgent is happening."""
+
+    cycle = 0
+    try:
+        while True:
+            cycle += 1
+            print(f"[Cycle {cycle}] {time.strftime('%H:%M:%S')} — ", end="", flush=True)
+
+            # Check for external commands
+            command = None
+            if os.path.exists(COMMAND_FILE):
+                try:
+                    with open(COMMAND_FILE) as f:
+                        command = json.load(f).get("message", "")
+                    os.remove(COMMAND_FILE)
+                    print(f"COMMAND: {command}")
+                except Exception:
+                    pass
+
+            if command:
+                response = agent(command)
+                print(f"  → {response}\n")
+            else:
+                response = agent(AUTONOMOUS_PROMPT)
+                print(f"  → OK\n")
+
+            # Sleep between cycles (30 seconds default)
+            time.sleep(30)
+
+    except KeyboardInterrupt:
+        print("\nAutonomous mode stopped.")
+        _cleanup()
+
+
+# ─── Mode: API Server ────────────────────────────────────────────────────────
+
+def mode_server(host="0.0.0.0", port=5000):
+    """Run the agent as an HTTP API server."""
+    from flask import Flask, request, jsonify
+    import threading
+
+    app = Flask(__name__)
+    agent = create_agent()
+    agent_lock = threading.Lock()
+
+    # Autonomous background loop (optional)
+    autonomous_enabled = False
+    autonomous_interval = 60  # seconds
+
+    @app.route('/health', methods=['GET'])
+    def health():
+        return jsonify({"status": "ok", "mode": "server", "hostname": os.uname().nodename})
+
+    @app.route('/ask', methods=['POST'])
+    def ask():
+        data = request.get_json()
+        if not data or 'message' not in data:
+            return jsonify({"error": "Missing 'message' field"}), 400
+
+        with agent_lock:
+            response = agent(data['message'])
+
+        return jsonify({"response": str(response)})
+
+    @app.route('/autonomous', methods=['POST'])
+    def toggle_autonomous():
+        nonlocal autonomous_enabled
+        data = request.get_json() or {}
+        autonomous_enabled = data.get('enabled', not autonomous_enabled)
+        return jsonify({"autonomous": autonomous_enabled, "interval": autonomous_interval})
+
+    @app.route('/tools', methods=['GET'])
+    def get_tools():
+        tool_files = []
+        if os.path.isdir(TOOLS_DIR):
+            tool_files = [f[:-3] for f in os.listdir(TOOLS_DIR)
+                         if f.endswith('.py') and not f.startswith('_')]
+        return jsonify({"dynamic_tools": tool_files})
+
+    def autonomous_loop():
+        """Background thread for autonomous behavior."""
+        AUTONOMOUS_PROMPT = "Quick status check: blink green LED, check motion, report anomalies only."
+        while True:
+            time.sleep(autonomous_interval)
+            if autonomous_enabled:
+                try:
+                    with agent_lock:
+                        agent(AUTONOMOUS_PROMPT)
+                except Exception as e:
+                    print(f"  [autonomous] Error: {e}")
+
+    # Start autonomous background thread
+    bg_thread = threading.Thread(target=autonomous_loop, daemon=True)
+    bg_thread.start()
+
+    print("╔══════════════════════════════════════════╗")
+    print("║   Atomic Pi Robot Agent (API Server)     ║")
+    print("║   Powered by Strands + Bedrock Claude    ║")
+    print("╚══════════════════════════════════════════╝")
+    print()
+    print(f"  Listening on http://{host}:{port}")
+    print()
+    print("  Endpoints:")
+    print("    POST /ask              - Send a command")
+    print("    POST /autonomous       - Toggle autonomous mode")
+    print("    GET  /health           - Health check")
+    print("    GET  /tools            - List dynamic tools")
+    print()
+
+    app.run(host=host, port=port, debug=False)
+
+
+# ─── Cleanup ─────────────────────────────────────────────────────────────────
+
+def _cleanup():
+    """Clean up GPIO processes."""
+    if hasattr(set_led, '_procs'):
+        for proc in set_led._procs.values():
+            proc.terminate()
+    if hasattr(led_pattern, '_proc') and led_pattern._proc:
+        led_pattern._proc.terminate()
+    print("Done.")
+
+
+# ─── Entry Point ─────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    main()
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Atomic Pi Robot Agent")
+    parser.add_argument("--mode", choices=["interactive", "autonomous", "server"],
+                       default="interactive",
+                       help="Agent mode: interactive (CLI), autonomous (self-directed), server (HTTP API)")
+    parser.add_argument("--host", default="0.0.0.0", help="API server host (default: 0.0.0.0)")
+    parser.add_argument("--port", type=int, default=5000, help="API server port (default: 5000)")
+
+    args = parser.parse_args()
+
+    if args.mode == "interactive":
+        mode_interactive()
+    elif args.mode == "autonomous":
+        mode_autonomous()
+    elif args.mode == "server":
+        mode_server(host=args.host, port=args.port)
+
