@@ -266,7 +266,11 @@ ok "SOF audio blacklisted"
 
 info "Setting up Python virtual environment for AI agent..."
 
-mkdir -p /opt/atomicpi/tools
+mkdir -p /opt/atomicpi
+if [[ ! -f /opt/atomicpi/atomicpi_agent.py ]]; then
+    git clone -q https://github.com/JaredLThompson/AtomicPi.git /opt/atomicpi
+fi
+
 python3 -m venv "$AGENT_DIR"
 "$AGENT_DIR/bin/pip" install -q \
     strands-agents \
