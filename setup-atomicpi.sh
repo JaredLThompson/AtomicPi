@@ -249,7 +249,31 @@ sudo -u "$SUDO_USER" "$AGENT_DIR/bin/pip" install -q \
 
 ok "Python venv created at $AGENT_DIR"
 
-# ─── 9. Summary ─────────────────────────────────────────────────────────────
+# ─── 9. Agent Systemd Service ───────────────────────────────────────────────
+
+info "Setting up agent systemd service..."
+
+cat > /etc/systemd/system/atomicpi-agent.service << EOF
+[Unit]
+Description=Atomic Pi AI Agent
+After=atomicpi-bno055.service xmos-audio-reset.service network.target
+
+[Service]
+Type=simple
+ExecStart=${AGENT_DIR}/bin/python3 ${AGENT_SCRIPT} --mode server
+Restart=always
+RestartSec=5
+Environment=HOME=/root
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload
+systemctl enable atomicpi-agent.service
+ok "Agent service enabled (starts on boot in server mode, port 5000)"
+
+# ─── 10. Summary ────────────────────────────────────────────────────────────
 
 echo ""
 echo -e "${GREEN}╔══════════════════════════════════════════════════════╗${NC}"
@@ -264,20 +288,35 @@ echo "  ✅ GeoCam camera (auto-loads firmware)"
 echo "  ✅ SOF audio blacklisted"
 echo ""
 echo "Software installed:"
-echo "  ✅ gpiod, i2c-tools, alsa-utils, v4l-utils"
+echo "  ✅ gpiod, i2c-tools, alsa-utils, v4l-utils, espeak-ng"
 echo "  ✅ i2c-gpio-custom DKMS module"
+echo "  ✅ Amazon SSM Agent"
 echo "  ✅ Python venv: $AGENT_DIR"
-echo "  ✅ strands-agents, opencv, smbus2"
+echo "  ✅ strands-agents, opencv, smbus2, flask"
+echo ""
+echo "Services enabled:"
+echo "  ✅ atomicpi-bno055.service  (IMU on I2C bus 50)"
+echo "  ✅ xmos-audio-reset.service (XMOS audio at boot)"
+echo "  ✅ atomicpi-agent.service   (AI agent API on port 5000)"
 echo ""
 echo "Next steps:"
-echo "  1. Reboot to activate all services:"
+echo "  1. Copy atomicpi_agent.py to: $AGENT_SCRIPT"
+echo ""
+echo "  2. Register with SSM (for AWS credentials):"
+echo "     sudo /snap/amazon-ssm-agent/current/amazon-ssm-agent -register \\"
+echo "       -code \"<code>\" -id \"<id>\" -region us-west-2"
+echo "     sudo snap restart amazon-ssm-agent"
+echo ""
+echo "  3. Reboot to activate all services:"
 echo "     sudo reboot"
 echo ""
-echo "  2. After reboot, verify hardware:"
-echo "     gpiodetect"
-echo "     sudo i2cdetect -y 50"
-echo "     aplay -l"
-echo "     ls /dev/video*"
+echo "  4. After reboot, verify:"
+echo "     curl http://localhost:5000/health"
+echo "     curl -X POST http://localhost:5000/ask \\"
+echo "       -H 'Content-Type: application/json' \\"
+echo "       -d '{\"message\": \"Hello! Blink your LEDs.\"}'"
+echo ""
+echo -e "${YELLOW}NOTE: Log out and back in for group membership to take effect.${NC}"
 echo ""
 echo "  3. Copy your atomicpi_agent.py script and run:"
 echo "     sudo $AGENT_DIR/bin/python3 ~/atomicpi_agent.py"
