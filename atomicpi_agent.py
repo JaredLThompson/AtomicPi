@@ -334,11 +334,14 @@ def play_sound(sound: str = "beep") -> str:
 
 
 @tool
-def speak(text: str) -> str:
+def speak(text: str, voice: str = "mb-us1", speed: int = 160) -> str:
     """Speak text aloud through the XMOS speakers using text-to-speech.
 
     Args:
         text: The text to speak aloud.
+        voice: Voice to use. Options: 'mb-us1' (female US), 'mb-us2' (male US),
+               'mb-us3' (male US alt), 'mb-en1' (British), 'en' (robot/default).
+        speed: Words per minute (default 160, range 80-400).
     """
     # Find XMOS card
     result = subprocess.run(["aplay", "-l"], capture_output=True, text=True)
@@ -364,7 +367,7 @@ def speak(text: str) -> str:
     # Generate speech and play through XMOS
     device = f"plughw:{card_num},0"
     result = subprocess.run(
-        [tts_cmd, "-v", "en", "--stdout", text],
+        [tts_cmd, "-v", voice, "-s", str(speed), "--stdout", text],
         capture_output=True
     )
 
