@@ -155,6 +155,18 @@ def _find_bno055_iio_path():
             continue
     raise FileNotFoundError(f"No BNO055 IIO device found under {IIO_ROOT}")
 
+def _format_iio_calibration(value):
+    """Format the Linux BNO055 IIO calibration scale (0 or 1 through 5)."""
+    try:
+        numeric_value = int(value)
+    except (TypeError, ValueError):
+        return f"{value} (unrecognized)"
+    if numeric_value == 0:
+        return "0 (autocalibration not enabled)"
+    if 1 <= numeric_value <= 5:
+        return f"{numeric_value}/5"
+    return f"{numeric_value} (invalid IIO status)"
+
 def _schedule_process_restart(delay=0.5):
     """Exit shortly; systemd will start a fresh agent process."""
     def _delayed_exit():
@@ -309,7 +321,11 @@ def read_imu_full() -> str:
             f"Gravity: X={grav_x:.2f} Y={grav_y:.2f} Z={grav_z:.2f} m/s²\n"
             f"Gyroscope: X={gyro_x:.3f} Y={gyro_y:.3f} Z={gyro_z:.3f} rad/s\n"
             f"Temperature: {temp:.1f}°C\n"
-            f"Calibration: Sys={cal_sys} Gyro={cal_gyro} Accel={cal_accel} Magn={cal_magn}"
+            f"Calibration (Linux IIO scale): "
+            f"Sys={_format_iio_calibration(cal_sys)} "
+            f"Gyro={_format_iio_calibration(cal_gyro)} "
+            f"Accel={_format_iio_calibration(cal_accel)} "
+            f"Magn={_format_iio_calibration(cal_magn)}"
         )
     except Exception as e:
         return f"Error reading IMU: {e}"
@@ -1045,6 +1061,7 @@ CRITICAL RULES:
 - ALWAYS read the BNO055 through its Linux IIO sysfs device under /sys/bus/iio/devices/iio:device*/ (the device whose name file contains "bno055"). Prefer the built-in read_orientation, read_imu_full, and detect_motion tools.
 - NEVER import board, busio, adafruit_bno055, or Adafruit_BNO055, and never create a second direct-I2C BNO055 driver. The kernel already owns the sensor on I2C bus 50.
 - A missing Python module is a software dependency error, not evidence that the BNO055 or I2C bus has failed. Report only values actually read; do not invent sensor specifications.
+- Interpret Linux BNO055 IIO *_calibration_auto_status attributes using the kernel ABI: 0 means autocalibration is not enabled; 1 through 5 indicate increasing calibration quality. Never label these values as a 0-3 scale.
 - NEVER use fswebcam or ffmpeg for camera capture. They change the pixel format to greyscale and break all future captures. Only use OpenCV (cv2.VideoCapture).
 - NEVER change v4l2 camera settings (brightness, contrast, sharpness, pixel format). The defaults produce the best images.
 - When creating tools, do not modify hardware settings that persist after the tool exits.

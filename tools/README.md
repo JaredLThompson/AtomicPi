@@ -29,3 +29,7 @@ device under `/sys/bus/iio/devices/iio:device*/` whose `name` file contains
 Do not import `board`, `busio`, `adafruit_bno055`, or `Adafruit_BNO055`, and do
 not open `/dev/i2c-50` from a dynamic tool. Competing with the kernel driver can
 fail or disrupt the working IIO device.
+
+The kernel IIO `*_calibration_auto_status` files use `0` for autocalibration not
+enabled and `1` through `5` for increasing calibration quality. They are not
+the 0–3 scale exposed by some direct sensor libraries.

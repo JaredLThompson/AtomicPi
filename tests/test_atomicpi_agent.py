@@ -57,6 +57,11 @@ class ValidationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Linux IIO sysfs"):
             agent._validate_tool_code(code)
 
+    def test_linux_iio_calibration_scale(self):
+        self.assertEqual(agent._format_iio_calibration("4"), "4/5")
+        self.assertIn("not enabled", agent._format_iio_calibration("0"))
+        self.assertIn("invalid", agent._format_iio_calibration("6"))
+
     def test_restart_is_deferred_until_response_handling(self):
         agent._restart_requested.clear()
         result = agent.restart_agent()

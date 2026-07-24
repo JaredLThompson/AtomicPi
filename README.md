@@ -250,12 +250,16 @@ In the agent, prefer the built-in `read_orientation`, `read_imu_full`, and
 
 ### Calibration
 
-The BNO055 requires calibration for accurate readings. Calibration status (0-3 for each of system, gyro, accelerometer, magnetometer) can be read from the sensor. For best results:
+The BNO055 requires calibration for accurate readings. The Linux IIO
+`*_calibration_auto_status` attributes use `0` when autocalibration is not
+enabled and `1` through `5` for increasing calibration quality. This differs
+from the 0–3 representation used by some direct BNO055 libraries. For best
+results:
 
 1. **Gyroscope**: Keep the sensor still for a few seconds
 2. **Magnetometer**: Move the sensor in a figure-8 pattern
 3. **Accelerometer**: Place the sensor in 6 different stable positions
-4. **System**: Achieves full calibration when all three are calibrated
+4. **System**: Reaches the highest IIO status when the component sensors are calibrated
 
 ### Resetting the BNO055 (if needed)
 
