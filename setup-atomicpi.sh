@@ -396,7 +396,8 @@ EOF
 
 systemctl daemon-reload
 systemctl enable atomicpi-agent.service
-ok "Agent service enabled (starts on boot in server mode, port 5000)"
+systemctl restart atomicpi-agent.service
+ok "Agent service reloaded, enabled, and started (server mode, port 5000)"
 
 # ─── 10. Summary ────────────────────────────────────────────────────────────
 
