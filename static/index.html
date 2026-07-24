@@ -165,6 +165,7 @@
         <button onclick="send('Take a photo and describe it in detail')">👁️ Describe</button>
         <button onclick="send('What do you remember?')">🧠 Memory</button>
         <button onclick="clearMemory()">🗑️ Clear Memory</button>
+        <button onclick="changeApiToken()">🔑 API Token</button>
     </div>
 
     <div class="chat-container" id="chat"></div>
@@ -183,6 +184,29 @@
         // Command history
         let history = JSON.parse(localStorage.getItem('atomicpi_history') || '[]');
         let historyIndex = -1;
+        let apiToken = localStorage.getItem('atomicpi_api_token') || '';
+
+        function changeApiToken() {
+            const value = prompt('Enter the API token from /etc/atomicpi-agent.env:', apiToken);
+            if (value === null) return false;
+            apiToken = value.trim();
+            if (apiToken) {
+                localStorage.setItem('atomicpi_api_token', apiToken);
+            } else {
+                localStorage.removeItem('atomicpi_api_token');
+            }
+            return Boolean(apiToken);
+        }
+
+        function authHeaders() {
+            if (!apiToken && !changeApiToken()) {
+                throw new Error('An API token is required.');
+            }
+            return {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${apiToken}`
+            };
+        }
 
         // Check health on load
         fetch('/health')
@@ -232,7 +256,7 @@
 
                 const res = await fetch('/ask', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: authHeaders(),
                     body: JSON.stringify({ message }),
                     signal: controller.signal
                 });
@@ -241,6 +265,10 @@
                 hideTyping();
                 const data = await res.json();
 
+                if (res.status === 401) {
+                    localStorage.removeItem('atomicpi_api_token');
+                    apiToken = '';
+                }
                 if (data.error) {
                     addMessage(data.error, 'error');
                 } else {
@@ -296,8 +324,17 @@
 
         async function clearMemory() {
             if (!confirm('Clear all agent memory? This cannot be undone.')) return;
-            await fetch('/memory', { method: 'DELETE' });
-            addMessage('Memory cleared.', 'system');
+            try {
+                const res = await fetch('/memory', {
+                    method: 'DELETE',
+                    headers: authHeaders()
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+                addMessage('Memory cleared.', 'system');
+            } catch (err) {
+                addMessage(`Could not clear memory: ${err.message}`, 'error');
+            }
         }
     </script>
 </body>

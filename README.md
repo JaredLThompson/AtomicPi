@@ -331,8 +331,8 @@ source ~/atomicpi-agent/bin/activate
 # Install Strands
 pip install strands-agents strands-agents-tools
 
-# Run the agent (uses SSM hybrid credentials)
-sudo /home/thjared/atomicpi-agent/bin/python3 ~/atomicpi_agent.py
+# Run interactively as the hardware-enabled user
+/home/thjared/atomicpi-agent/bin/python3 ~/atomicpi_agent.py
 ```
 
 ### Available Tools
@@ -351,11 +351,12 @@ sudo /home/thjared/atomicpi-agent/bin/python3 ~/atomicpi_agent.py
 | `get_system_info` | Uptime, memory, board temperature |
 | `get_time` | Current date and time |
 
-### Credentials (SSM Hybrid Activation)
+### Credentials
 
-The Atomic Pi is registered as an SSM managed instance (`mi-022cfd32173a54bbc`). The SSM agent auto-rotates credentials at `/root/.aws/credentials`, used by the Bedrock SDK — no manual key management needed.
-
-The IAM role `AmazonEC2RunCommandRoleForManagedInstances` has an inline policy `BedrockInvokeModel` granting `bedrock:InvokeModel` and `bedrock:InvokeModelWithResponseStream` access.
+The systemd service runs as the setup user, not root. Make Bedrock credentials
+available to that user through an AWS profile or another supported SDK credential
+provider. The associated role needs `bedrock:InvokeModel` and
+`bedrock:InvokeModelWithResponseStream`.
 
 ### Adding a USB Camera
 
@@ -372,7 +373,6 @@ Example tool (requires `opencv-python`):
 
 ```python
 import cv2
-import base64
 
 @tool
 def take_photo(description: str = "camera capture") -> dict:
@@ -381,11 +381,61 @@ def take_photo(description: str = "camera capture") -> dict:
     ret, frame = cap.read()
     cap.release()
     if not ret:
-        return {"error": "Failed to capture image"}
-    _, buffer = cv2.imencode('.jpg', frame)
-    b64_image = base64.b64encode(buffer).decode('utf-8')
-    return {"image": b64_image, "format": "jpeg"}
+        return {"status": "error", "content": [{"text": "Capture failed"}]}
+    encoded, buffer = cv2.imencode('.jpg', frame)
+    if not encoded:
+        return {"status": "error", "content": [{"text": "JPEG encoding failed"}]}
+    return {
+        "status": "success",
+        "content": [{
+            "image": {"format": "jpeg", "source": {"bytes": buffer.tobytes()}}
+        }],
+    }
 ```
+
+## Local network access and mDNS
+
+The setup script installs Avahi and advertises the machine's existing hostname
+over mDNS. For a machine whose hostname is `atomic-pi-2`, open:
+
+```text
+http://atomic-pi-2.local:5000
+```
+
+For an already-configured Atomic Pi, keep or set whatever hostname you want,
+then enable Avahi:
+
+```bash
+sudo apt update
+sudo apt install -y avahi-daemon libnss-mdns
+sudo systemctl enable --now avahi-daemon
+sudo systemctl restart avahi-daemon
+```
+
+Check the name being advertised with `hostname -s`. If it prints `atomic-pi-2`,
+the mDNS address is `atomic-pi-2.local`. To deliberately rename the machine,
+run `sudo hostnamectl set-hostname <new-name>` and restart Avahi.
+
+Verify from another machine on the same LAN with
+`ping atomic-pi-2.local` or `curl http://atomic-pi-2.local:5000/health`.
+The `.local` name uses multicast DNS, so it normally does not cross VLANs,
+guest-network isolation, or routers that block multicast.
+
+The network API requires a bearer token. The installer creates one in
+`/etc/atomicpi-agent.env`; the web UI prompts for it and stores it in that
+browser's local storage. For command-line use:
+
+```bash
+TOKEN=$(sudo sed -n 's/^ATOMICPI_API_TOKEN=//p' /etc/atomicpi-agent.env)
+curl -X POST http://atomic-pi-2.local:5000/ask \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"message":"Blink the green LED"}'
+```
+
+Dynamic Python tool loading and self-modification are disabled by default.
+Enabling `ATOMICPI_ENABLE_SELF_MODIFICATION=1` permits model-generated code to
+run as the service user and should only be done on an isolated, trusted system.
 
 ## Notes
 

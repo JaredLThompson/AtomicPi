@@ -23,9 +23,13 @@ Thumbs.db
 
 # Credentials (never commit)
 .aws/
+.env
 *.pem
 *.key
 ssm_activation.txt
+
+# Agent runtime state
+memory.json
 
 # Misc
 192.168.13.56
