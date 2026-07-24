@@ -353,10 +353,15 @@ pip install strands-agents strands-agents-tools
 
 ### Credentials
 
-The systemd service runs as the setup user, not root. Make Bedrock credentials
-available to that user through an AWS profile or another supported SDK credential
-provider. The associated role needs `bedrock:InvokeModel` and
-`bedrock:InvokeModelWithResponseStream`.
+The systemd service runs as root because the SSM hybrid agent maintains its
+rotating AWS credentials under `/root/.aws/credentials`. The associated role
+needs `bedrock:InvokeModel` and `bedrock:InvokeModelWithResponseStream`.
+
+Because the process runs as root, network API authentication is mandatory,
+model-created Python tools are disabled by default, and the systemd unit retains
+filesystem and privilege hardening. Treat enabling
+`ATOMICPI_ENABLE_SELF_MODIFICATION` as equivalent to granting the model root
+code execution.
 
 ### Adding a USB Camera
 

@@ -307,7 +307,8 @@ python3 -m venv "$AGENT_DIR"
     opencv-python-headless \
     flask
 
-# The unprivileged service user owns runtime state and optional dynamic tools.
+# Keep deployed files manageable by the setup user. The agent service runs as
+# root because SSM hybrid credentials are maintained under /root/.aws.
 chown -R "$SUDO_USER:$SUDO_USER" /opt/atomicpi
 
 ok "Python venv created at $AGENT_DIR"
@@ -328,8 +329,11 @@ info "Setting up agent systemd service..."
 
 if [[ ! -f /etc/atomicpi-agent.env ]]; then
     umask 0077
-    printf 'ATOMICPI_API_TOKEN=%s\nATOMICPI_ENABLE_SELF_MODIFICATION=0\n' \
-        "$(openssl rand -hex 32)" > /etc/atomicpi-agent.env
+    printf '%s\nATOMICPI_API_TOKEN=%s\n%s\nATOMICPI_ENABLE_SELF_MODIFICATION=0\n' \
+        '# Bearer token required by every protected HTTP API endpoint.' \
+        "$(openssl rand -hex 32)" \
+        '# Set to 1 to let the agent create and load Python tools in /opt/atomicpi/tools.' \
+        > /etc/atomicpi-agent.env
 fi
 chown root:"$SUDO_USER" /etc/atomicpi-agent.env
 chmod 0640 /etc/atomicpi-agent.env
@@ -342,14 +346,11 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=${SUDO_USER}
-Group=${SUDO_USER}
-SupplementaryGroups=gpio i2c audio video
 ExecStartPre=/bin/sleep 5
 ExecStart=${AGENT_DIR}/bin/python3 ${AGENT_SCRIPT} --mode server --host 0.0.0.0
 Restart=always
 RestartSec=5
-Environment=HOME=/home/${SUDO_USER}
+Environment=HOME=/root
 EnvironmentFile=/etc/atomicpi-agent.env
 NoNewPrivileges=true
 PrivateTmp=true
@@ -390,21 +391,19 @@ echo "  ✅ atomicpi-bno055.service  (IMU on I2C bus 50)"
 echo "  ✅ xmos-audio-reset.service (XMOS audio at boot)"
 echo "  ✅ atomicpi-agent.service   (AI agent API on port 5000)"
 echo "  ✅ avahi-daemon             (${ATOMICPI_MDNS_NAME}.local)"
+echo "  🔒 Custom tool creation/loading is disabled by default"
 echo ""
 echo "Next steps:"
-echo "  1. Configure Bedrock credentials for ${SUDO_USER} (the service does not run as root)."
-echo "     For an AWS profile: sudo -u ${SUDO_USER} aws configure"
-echo ""
-echo "  2. If using SSM, register it and make its Bedrock credentials available"
-echo "     to ${SUDO_USER}; do not run the network-facing service as root:"
+echo "  1. Register with SSM so its rotating Bedrock credentials are available"
+echo "     under /root/.aws/credentials to the root-run agent service:"
 echo "     sudo /snap/amazon-ssm-agent/current/amazon-ssm-agent -register \\"
 echo "       -code \"<code>\" -id \"<id>\" -region us-west-2"
 echo "     sudo snap restart amazon-ssm-agent"
 echo ""
-echo "  3. Reboot to activate all services:"
+echo "  2. Reboot to activate all services:"
 echo "     sudo reboot"
 echo ""
-echo "  4. After reboot, verify:"
+echo "  3. After reboot, verify:"
 echo "     curl http://localhost:5000/health"
 echo "     TOKEN=\$(sudo sed -n 's/^ATOMICPI_API_TOKEN=//p' /etc/atomicpi-agent.env)"
 echo "     curl -X POST http://localhost:5000/ask \\"
@@ -414,5 +413,11 @@ echo "       -d '{\"message\": \"Hello! Blink your LEDs.\"}'"
 echo ""
 echo "     Web UI: http://${ATOMICPI_MDNS_NAME}.local:5000"
 echo "     Token: sudo sed -n 's/^ATOMICPI_API_TOKEN=//p' /etc/atomicpi-agent.env"
+echo ""
+echo "  Custom Python tools:"
+echo "     Disabled by default with ATOMICPI_ENABLE_SELF_MODIFICATION=0."
+echo "     Set it to 1 in /etc/atomicpi-agent.env and restart atomicpi-agent"
+echo "     to let the agent create/load /opt/atomicpi/tools/*.py."
+echo -e "     ${YELLOW}WARNING: custom tools execute as root.${NC}"
 echo ""
 echo -e "${YELLOW}NOTE: Log out and back in for group membership to take effect.${NC}"
