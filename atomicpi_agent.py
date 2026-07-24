@@ -18,6 +18,8 @@ Usage:
   python3 atomicpi_agent.py
 """
 
+import ast
+import glob
 import json
 import hmac
 import os
@@ -32,7 +34,8 @@ from strands.tools import tool
 
 # ─── Configuration ───────────────────────────────────────────────────────────
 
-IIO_PATH = "/sys/bus/iio/devices/iio:device0"
+IIO_ROOT = "/sys/bus/iio/devices"
+IIO_PATH_OVERRIDE = os.environ.get("ATOMICPI_BNO055_IIO_PATH")
 
 # GPIO mapping (gpiochip2 / East community)
 LED_PINS = {
@@ -135,9 +138,22 @@ def _gpioget(chip, line):
     return int(result.stdout.strip())
 
 def _read_iio(filename):
-    """Read a value from the IIO sysfs interface."""
-    with open(os.path.join(IIO_PATH, filename)) as f:
+    """Read a BNO055 value through the Linux IIO sysfs interface."""
+    with open(os.path.join(_find_bno055_iio_path(), filename)) as f:
         return f.read().strip()
+
+def _find_bno055_iio_path():
+    """Find the kernel IIO device named bno055 without assuming its index."""
+    if IIO_PATH_OVERRIDE:
+        return IIO_PATH_OVERRIDE
+    for name_path in sorted(glob.glob(os.path.join(IIO_ROOT, "iio:device*", "name"))):
+        try:
+            with open(name_path) as name_file:
+                if name_file.read().strip().lower() == "bno055":
+                    return os.path.dirname(name_path)
+        except OSError:
+            continue
+    raise FileNotFoundError(f"No BNO055 IIO device found under {IIO_ROOT}")
 
 def _schedule_process_restart(delay=0.5):
     """Exit shortly; systemd will start a fresh agent process."""
@@ -794,6 +810,26 @@ def _validate_tool_code(code):
         raise ValueError("Tool source must be text.")
     if len(code.encode("utf-8")) > MAX_TOOL_SOURCE_BYTES:
         raise ValueError(f"Tool source exceeds {MAX_TOOL_SOURCE_BYTES} bytes.")
+    try:
+        syntax_tree = ast.parse(code)
+    except SyntaxError as e:
+        raise ValueError(f"Tool source is not valid Python: {e}") from e
+
+    forbidden_modules = {"board", "busio", "adafruit_bno055", "Adafruit_BNO055"}
+    imported_modules = set()
+    for node in ast.walk(syntax_tree):
+        if isinstance(node, ast.Import):
+            imported_modules.update(alias.name.split(".")[0] for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            imported_modules.add(node.module.split(".")[0])
+    forbidden_used = imported_modules & forbidden_modules
+    if forbidden_used:
+        modules = ", ".join(sorted(forbidden_used))
+        raise ValueError(
+            f"Unsupported hardware module(s): {modules}. "
+            "BNO055 tools must read the Linux IIO sysfs device under "
+            "/sys/bus/iio/devices/iio:device*/ and must not use CircuitPython."
+        )
 
 def _atomic_write_text(filepath, content):
     os.makedirs(os.path.dirname(filepath), exist_ok=True)
@@ -830,6 +866,8 @@ def load_dynamic_tools():
         module_name = f"tools.{filename[:-3]}"
 
         try:
+            with open(filepath) as source_file:
+                _validate_tool_code(source_file.read(MAX_TOOL_SOURCE_BYTES + 1))
             spec = importlib.util.spec_from_file_location(module_name, filepath)
             module = importlib.util.module_from_spec(spec)
             sys.modules[module_name] = module
@@ -1004,6 +1042,9 @@ Hardware facts:
 - Camera requires geocam firmware (auto-loaded via udev)
 
 CRITICAL RULES:
+- ALWAYS read the BNO055 through its Linux IIO sysfs device under /sys/bus/iio/devices/iio:device*/ (the device whose name file contains "bno055"). Prefer the built-in read_orientation, read_imu_full, and detect_motion tools.
+- NEVER import board, busio, adafruit_bno055, or Adafruit_BNO055, and never create a second direct-I2C BNO055 driver. The kernel already owns the sensor on I2C bus 50.
+- A missing Python module is a software dependency error, not evidence that the BNO055 or I2C bus has failed. Report only values actually read; do not invent sensor specifications.
 - NEVER use fswebcam or ffmpeg for camera capture. They change the pixel format to greyscale and break all future captures. Only use OpenCV (cv2.VideoCapture).
 - NEVER change v4l2 camera settings (brightness, contrast, sharpness, pixel format). The defaults produce the best images.
 - When creating tools, do not modify hardware settings that persist after the tool exits.

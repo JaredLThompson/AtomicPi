@@ -52,6 +52,11 @@ class ValidationTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             agent._tool_path("../atomicpi_agent")
 
+    def test_dynamic_tool_rejects_circuitpython_bno_driver(self):
+        code = "import board\nfrom adafruit_bno055 import BNO055_I2C\n"
+        with self.assertRaisesRegex(ValueError, "Linux IIO sysfs"):
+            agent._validate_tool_code(code)
+
     def test_restart_is_deferred_until_response_handling(self):
         agent._restart_requested.clear()
         result = agent.restart_agent()

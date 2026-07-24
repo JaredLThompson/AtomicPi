@@ -18,3 +18,14 @@ def read_my_sensor() -> str:
 ```
 
 The agent will load it on next restart.
+
+## BNO055 rule
+
+The BNO055 is owned by the Linux kernel IIO driver. Dynamic tools must read the
+device under `/sys/bus/iio/devices/iio:device*/` whose `name` file contains
+`bno055`. Prefer the agent's built-in `read_orientation`, `read_imu_full`, and
+`detect_motion` tools.
+
+Do not import `board`, `busio`, `adafruit_bno055`, or `Adafruit_BNO055`, and do
+not open `/dev/i2c-50` from a dynamic tool. Competing with the kernel driver can
+fail or disrupt the working IIO device.

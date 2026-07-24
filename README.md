@@ -224,62 +224,29 @@ dmesg | grep bno055
 | Interrupt | gpiochip1 | 17 | 358 | Active-low, optional |
 | Reset | gpiochip1 | 25 | 366 | Active-low, optional |
 
-### Python (Adafruit Library)
+### Reading through Linux IIO
+
+The Linux BNO055 driver owns I²C bus 50. Applications and agent-created tools
+must read the corresponding IIO sysfs device rather than opening `/dev/i2c-50`
+or creating a second Adafruit/CircuitPython driver.
+
+The IIO device number is not guaranteed to remain `device0`, so locate it by
+name:
 
 ```bash
-pip3 install adafruit-bno055 smbus2
+for device in /sys/bus/iio/devices/iio:device*; do
+    if [[ "$(cat "$device/name" 2>/dev/null)" == "bno055" ]]; then
+        echo "BNO055 IIO device: $device"
+        cat "$device/in_rot_yaw_raw"
+        cat "$device/in_rot_pitch_raw"
+        cat "$device/in_rot_roll_raw"
+    fi
+done
 ```
 
-```python
-from Adafruit_BNO055.BNO055 import BNO055
-from time import sleep
-
-# BNO055 is on I2C bus 50
-sensor = BNO055(busnum=50)
-assert sensor.begin(), "Failed to initialize BNO055"
-
-while True:
-    heading, roll, pitch = sensor.read_euler()
-    qw, qx, qy, qz = sensor.read_quaternion()
-    ax, ay, az = sensor.read_linear_acceleration()
-    gx, gy, gz = sensor.read_gravity()
-    temp = sensor.read_temp()
-
-    print(f"Heading={heading:.1f} Roll={roll:.1f} Pitch={pitch:.1f}")
-    print(f"Quaternion=({qw:.3f}, {qx:.3f}, {qy:.3f}, {qz:.3f})")
-    print(f"Linear Accel=({ax:.2f}, {ay:.2f}, {az:.2f}) m/s²")
-    print(f"Gravity=({gx:.2f}, {gy:.2f}, {gz:.2f}) m/s²")
-    print(f"Temp={temp:.1f}°C")
-    print()
-    sleep(1)
-```
-
-### Node.JS
-
-```bash
-npm install bno055 async
-```
-
-```javascript
-var BNO055 = require('bno055');
-var async = require('async');
-
-// BNO055 is on I2C bus 50
-var imu = new BNO055({device: "/dev/i2c-50"});
-imu.beginNDOF(function() {
-    console.info('IMU running');
-    setInterval(function() {
-        async.series({
-            calibrationStatus: imu.getCalibrationStatus.bind(imu),
-            quaternion: imu.getQuaternion.bind(imu),
-            euler: imu.getEuler.bind(imu),
-            linearAcceleration: imu.getLinearAcceleration.bind(imu)
-        }, function(err, results) {
-            console.info('IMU:', JSON.stringify(results));
-        });
-    }, 1000);
-});
-```
+In the agent, prefer the built-in `read_orientation`, `read_imu_full`, and
+`detect_motion` tools. Dynamic tools importing `board`, `busio`,
+`adafruit_bno055`, or `Adafruit_BNO055` are rejected.
 
 ### Calibration
 
