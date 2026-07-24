@@ -166,6 +166,7 @@
         <button onclick="send('What do you remember?')">🧠 Memory</button>
         <button onclick="clearMemory()">🗑️ Clear Memory</button>
         <button onclick="changeApiToken()">🔑 API Token</button>
+        <button onclick="restartService()">♻️ Restart Service</button>
     </div>
 
     <div class="chat-container" id="chat"></div>
@@ -355,6 +356,24 @@
                 addMessage('Memory cleared.', 'system');
             } catch (err) {
                 addMessage(`Could not clear memory: ${err.message}`, 'error');
+            }
+        }
+
+        async function restartService() {
+            if (!confirm('Restart the Atomic Pi agent service?')) return;
+            try {
+                const res = await fetch('/restart', {
+                    method: 'POST',
+                    headers: authHeaders()
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+                addMessage(data.message, 'system');
+                status.textContent = '● restarting';
+                status.classList.remove('online');
+                setTimeout(() => window.location.reload(), 7000);
+            } catch (err) {
+                addMessage(`Could not restart service: ${err.message}`, 'error');
             }
         }
     </script>

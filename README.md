@@ -457,6 +457,20 @@ Treat the QR code as a password: anyone who scans or photographs it can control
 the agent. Clear the terminal after pairing and generate a new API token if the
 QR code may have been exposed.
 
+### Restarting after AWS credential rotation
+
+The authenticated `POST /restart` endpoint restarts the agent process without
+calling Bedrock. This remains available when an expired cached AWS credential
+prevents the model from responding. The web UI exposes it as **Restart Service**.
+
+```bash
+curl -X POST http://localhost:5000/restart \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+The endpoint returns its JSON response first, then exits; systemd starts a new
+process, which reloads `/root/.aws/credentials`.
+
 Dynamic Python tool loading and self-modification are disabled by default.
 Enabling `ATOMICPI_ENABLE_SELF_MODIFICATION=1` permits model-generated code to
 run as the service user and should only be done on an isolated, trusted system.

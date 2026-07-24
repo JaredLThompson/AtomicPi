@@ -52,6 +52,13 @@ class ValidationTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             agent._tool_path("../atomicpi_agent")
 
+    def test_restart_is_deferred_until_response_handling(self):
+        agent._restart_requested.clear()
+        result = agent.restart_agent()
+        self.assertTrue(agent._restart_requested.is_set())
+        self.assertIn("after this response", result)
+        agent._restart_requested.clear()
+
     def test_memory_is_bounded_and_untrusted(self):
         with tempfile.TemporaryDirectory() as directory:
             memory_file = os.path.join(directory, "memory.json")

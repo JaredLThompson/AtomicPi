@@ -56,6 +56,7 @@ _gpio_procs = {}
 _gpio_values = {}
 _gpio_lock = threading.RLock()
 _memory_lock = threading.RLock()
+_restart_requested = threading.Event()
 
 # ─── Helper functions ────────────────────────────────────────────────────────
 
@@ -137,6 +138,14 @@ def _read_iio(filename):
     """Read a value from the IIO sysfs interface."""
     with open(os.path.join(IIO_PATH, filename)) as f:
         return f.read().strip()
+
+def _schedule_process_restart(delay=0.5):
+    """Exit shortly; systemd will start a fresh agent process."""
+    def _delayed_exit():
+        time.sleep(delay)
+        os._exit(0)
+
+    threading.Thread(target=_delayed_exit, daemon=True).start()
 
 # ─── LED Tools ───────────────────────────────────────────────────────────────
 
@@ -960,16 +969,9 @@ def delete_tool(name: str) -> str:
 @tool
 def restart_agent() -> str:
     """Restart the agent process to reload configuration and dynamic tools.
-    The agent will shut down after responding, and systemd will restart it."""
-    import threading
-
-    def _delayed_exit():
-        import time
-        time.sleep(2)  # Give time for the response to be sent
-        os._exit(0)
-
-    threading.Thread(target=_delayed_exit, daemon=True).start()
-    return "Restarting in 2 seconds... New tools will be available shortly."
+    The current request is allowed to finish before systemd restarts it."""
+    _restart_requested.set()
+    return "Restart requested. The agent will restart after this response is delivered."
 
 
 SYSTEM_PROMPT = """You are an AI agent running on an Atomic Pi single-board computer (Intel Atom x5-Z8350).
@@ -1074,6 +1076,9 @@ def mode_interactive():
             print()
             response = agent(user_input)
             print(f"\nAgent > {response}\n")
+            if _restart_requested.is_set():
+                _restart_requested.clear()
+                _schedule_process_restart()
 
     except KeyboardInterrupt:
         print("\nShutting down...")
@@ -1129,6 +1134,10 @@ Keep responses short. Only speak aloud if something urgent is happening."""
             else:
                 response = agent(AUTONOMOUS_PROMPT)
                 print(f"  → OK\n")
+
+            if _restart_requested.is_set():
+                _restart_requested.clear()
+                _schedule_process_restart()
 
             # Sleep between cycles (30 seconds default)
             time.sleep(30)
@@ -1191,9 +1200,17 @@ def mode_server(host="127.0.0.1", port=5000):
         try:
             with agent_lock:
                 response = agent(message)
-            return jsonify({"response": str(response)})
+            http_response = jsonify({"response": str(response)})
         except Exception as e:
-            return jsonify({"error": f"Agent error: {str(e)}"}), 500
+            http_response = jsonify({"error": f"Agent error: {str(e)}"})
+            http_response.status_code = 500
+
+        if _restart_requested.is_set():
+            _restart_requested.clear()
+            # Flask closes the response after it has been handed to the WSGI
+            # server, so the client receives JSON before this process exits.
+            http_response.call_on_close(_schedule_process_restart)
+        return http_response
 
     @app.route('/autonomous', methods=['POST'])
     def toggle_autonomous():
@@ -1222,6 +1239,16 @@ def mode_server(host="127.0.0.1", port=5000):
         save_memory({"facts": [], "notes": []})
         return jsonify({"status": "Memory cleared"})
 
+    @app.route('/restart', methods=['POST'])
+    def restart_service():
+        """Restart without invoking Bedrock, useful after credential rotation."""
+        http_response = jsonify({
+            "status": "restart_scheduled",
+            "message": "Agent service will restart after this response is delivered.",
+        })
+        http_response.call_on_close(_schedule_process_restart)
+        return http_response
+
     def autonomous_loop():
         """Background thread for autonomous behavior."""
         AUTONOMOUS_PROMPT = "Quick status check: blink green LED, check motion, report anomalies only."
@@ -1248,6 +1275,7 @@ def mode_server(host="127.0.0.1", port=5000):
     print("  Endpoints:")
     print("    POST /ask              - Send a command")
     print("    POST /autonomous       - Toggle autonomous mode")
+    print("    POST /restart          - Restart without invoking Bedrock")
     print("    GET  /health           - Health check")
     print("    GET  /tools            - List dynamic tools")
     print()
