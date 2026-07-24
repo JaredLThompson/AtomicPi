@@ -91,6 +91,7 @@ apt install -y -qq \
     avahi-daemon \
     libnss-mdns \
     openssl \
+    qrencode \
     vim \
     zsh \
     > /dev/null 2>&1
@@ -338,6 +339,38 @@ fi
 chown root:"$SUDO_USER" /etc/atomicpi-agent.env
 chmod 0640 /etc/atomicpi-agent.env
 
+# Install a local helper that displays a one-scan mobile pairing QR code.
+cat > /usr/local/bin/atomicpi-pair << 'EOF'
+#!/bin/bash
+set -euo pipefail
+
+ENV_FILE="/etc/atomicpi-agent.env"
+if [[ $EUID -ne 0 ]]; then
+    echo "Run with sudo: sudo atomicpi-pair" >&2
+    exit 1
+fi
+if [[ ! -r "$ENV_FILE" ]]; then
+    echo "Cannot read $ENV_FILE" >&2
+    exit 1
+fi
+
+TOKEN="$(sed -n 's/^ATOMICPI_API_TOKEN=//p' "$ENV_FILE")"
+if [[ -z "$TOKEN" ]]; then
+    echo "ATOMICPI_API_TOKEN is missing from $ENV_FILE" >&2
+    exit 1
+fi
+
+PAIR_URL="http://$(hostname -s).local:5000/#pair=${TOKEN}"
+echo "Scan this QR code with the mobile device you want to authorize:"
+echo
+qrencode -t ANSIUTF8 "$PAIR_URL"
+echo
+echo "$PAIR_URL"
+echo
+echo "Treat this QR code like a password. Press Ctrl+L, then clear the terminal after pairing."
+EOF
+chmod 0755 /usr/local/bin/atomicpi-pair
+
 cat > /etc/systemd/system/atomicpi-agent.service << EOF
 [Unit]
 Description=Atomic Pi AI Agent
@@ -413,6 +446,7 @@ echo "       -d '{\"message\": \"Hello! Blink your LEDs.\"}'"
 echo ""
 echo "     Web UI: http://${ATOMICPI_MDNS_NAME}.local:5000"
 echo "     Token: sudo sed -n 's/^ATOMICPI_API_TOKEN=//p' /etc/atomicpi-agent.env"
+echo "     Mobile pairing QR code: sudo atomicpi-pair"
 echo ""
 echo "  Custom Python tools:"
 echo "     Disabled by default with ATOMICPI_ENABLE_SELF_MODIFICATION=0."

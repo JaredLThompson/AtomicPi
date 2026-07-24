@@ -186,6 +186,26 @@
         let historyIndex = -1;
         let apiToken = localStorage.getItem('atomicpi_api_token') || '';
 
+        function acceptPairingToken() {
+            const fragment = new URLSearchParams(window.location.hash.slice(1));
+            const pairingToken = fragment.get('pair');
+            if (!pairingToken) return;
+
+            apiToken = pairingToken.trim();
+            if (apiToken) {
+                localStorage.setItem('atomicpi_api_token', apiToken);
+                addMessage('This device is now paired with the Atomic Pi.', 'system');
+            }
+
+            // URL fragments are not sent to the server. Remove the secret from
+            // the visible URL and browser history immediately after importing it.
+            window.history.replaceState(
+                null,
+                document.title,
+                window.location.pathname + window.location.search
+            );
+        }
+
         function changeApiToken() {
             const value = prompt('Enter the API token from /etc/atomicpi-agent.env:', apiToken);
             if (value === null) return false;
@@ -319,8 +339,9 @@
             }
         });
 
-        // Welcome message
+        // Welcome message and optional one-scan mobile pairing.
         addMessage('Agent online. What would you like me to do?', 'system');
+        acceptPairingToken();
 
         async function clearMemory() {
             if (!confirm('Clear all agent memory? This cannot be undone.')) return;

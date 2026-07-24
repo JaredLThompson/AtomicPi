@@ -438,6 +438,25 @@ curl -X POST http://atomic-pi-2.local:5000/ask \
   -d '{"message":"Blink the green LED"}'
 ```
 
+### Mobile pairing
+
+To authorize a phone or tablet without typing the long bearer token, display a
+pairing QR code on the Atomic Pi terminal:
+
+```bash
+sudo atomicpi-pair
+```
+
+Scan it with the mobile device. The QR URL carries the token in a URL fragment,
+which browsers do not send to the HTTP server. The web UI saves the token in
+that browser's local storage and immediately removes it from the visible URL
+and browser history. Pairing is required once per browser unless its site data
+is cleared.
+
+Treat the QR code as a password: anyone who scans or photographs it can control
+the agent. Clear the terminal after pairing and generate a new API token if the
+QR code may have been exposed.
+
 Dynamic Python tool loading and self-modification are disabled by default.
 Enabling `ATOMICPI_ENABLE_SELF_MODIFICATION=1` permits model-generated code to
 run as the service user and should only be done on an isolated, trusted system.
